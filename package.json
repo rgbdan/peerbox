@@ -1,0 +1,22 @@
+{
+  "name": "peerbox",
+  "version": "0.1.1",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "spike": "npm run spike -w @peerbox/core",
+    "daemon": "npm run daemon -w @peerbox/core",
+    "desktop": "npm run start -w @peerbox/desktop",
+    "dist": "npm run dist -w @peerbox/desktop --",
+    "reset": "scripts/reset.sh",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

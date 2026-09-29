@@ -1,0 +1,100 @@
+# On a v* tag, builds the Linux and macOS installers and attaches them to the
+# release. Windows isn't built yet.
+
+name: release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install packaging prerequisites
+        # Tauri's Linux build needs the webkit2gtk/gtk headers to compile the
+        # shell, and fakeroot/dpkg to assemble the bundles.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config build-essential curl file \
+            fakeroot dpkg
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Rust checks
+        working-directory: apps/desktop/src-tauri
+        # stage-node first: tauri-build needs binaries/node-<triple>.
+        # No `cargo fmt --check`: the `fn name ()` style isn't rustfmt's.
+        run: |
+          node ../scripts/stage-node.mjs
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - name: Build desktop artifacts
+        run: npm run dist -w @peerbox/desktop
+
+      - name: Collect artifacts
+        # Rename to stable, version-less names so install.sh can fetch them
+        # from /releases/latest/download/ without knowing the version.
+        run: |
+          mkdir -p upload
+          bundle=apps/desktop/src-tauri/target/release/bundle
+          cp "$bundle"/appimage/*.AppImage upload/peerbox-linux-x86_64.AppImage
+          cp "$bundle"/deb/*.deb           upload/peerbox-linux-amd64.deb
+
+      - name: Attach artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: upload/*
+
+  macos:
+    # Apple Silicon only: the bundled Node and native addons are per-arch.
+    runs-on: macos-14
+    # After linux, so the two jobs don't race to create the release; a failed
+    # mac build still leaves the Linux assets published.
+    needs: linux
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build desktop artifacts
+        # Unsigned: tauri.conf.json ad-hoc signs ("-") so Gatekeeper offers
+        # "Open Anyway" instead of calling the app damaged.
+        run: npm run dist -w @peerbox/desktop
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p upload
+          cp apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg upload/peerbox-macos-arm64.dmg
+
+      - name: Attach artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: upload/*

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="128" height="128">
+  <defs><mask id="gap"><rect width="24" height="24" fill="#fff"/><circle cx="12" cy="12" r="2.4" fill="#000"/></mask></defs>
+  <rect x="0.94" y="0.94" width="22.12" height="22.12" rx="4.5" fill="#14171c"/>
+  <path d="M12 5 18.06 8.5V15.5L12 19 5.94 15.5V8.5ZM12 12 18.06 8.5M12 12V19M12 12 5.94 8.5" fill="none" stroke="#e2a640" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" mask="url(#gap)"/>
+  <circle cx="12" cy="12" r="1.55" fill="#52c7b8"/>
+</svg>

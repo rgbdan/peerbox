@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Pages can't send headers, so the CSP lives here (frame-ancestors isn't allowed in a meta tag). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>peerbox — private, peer-to-peer file sync</title>
+  <meta name="description" content="peerbox syncs a folder directly between your own computers. Encrypted, open source, no cloud and no account. Your recovery phrase is your account.">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="peerbox — private, peer-to-peer file sync">
+  <meta property="og:description" content="Your files, on your devices. No one in between. Encrypted, open source, no cloud and no account.">
+  <meta name="twitter:card" content="summary">
+
+  <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="static/css/fonts.css">
+  <link rel="stylesheet" href="static/css/style.css">
+  <!-- Sync, not defer: the stored theme must be applied before first paint. -->
+  <script src="static/js/theme.js"></script>
+</head>
+<body class="page">
+
+  <header class="nav">
+    <a class="nav__brand" href="./">
+      <img class="nav__logo" src="static/favicon.svg" width="36" height="36" alt="">
+      <span class="nav__name">peerbox</span>
+    </a>
+    <nav class="nav__links" aria-label="Main">
+      <a class="nav__link" href="#how">How it works</a>
+      <a class="nav__link" href="#security">Security</a>
+      <a class="nav__link" href="#open-source">Open source</a>
+      <a class="nav__cta" href="#get">Get peerbox</a>
+      <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light theme">
+        <svg class="theme-toggle__moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"></path></svg>
+        <svg class="theme-toggle__sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero__text">
+        <h1 class="hero__title">Your files, on your devices. No&nbsp;one in between.</h1>
+        <p class="hero__sub">peerbox keeps a folder in sync directly between your own computers. No cloud copy, no account, no monthly bill.</p>
+        <div class="actions">
+          <a class="actions__primary" href="https://github.com/rgbdan/peerbox/releases/latest/download/peerbox-macos-arm64.dmg">Download for Mac</a>
+          <a class="actions__primary" href="https://github.com/rgbdan/peerbox/releases/latest">Download for Linux</a>
+        </div>
+        <p class="actions__note">Mac: Apple Silicon (M1 or newer), with <a href="https://github.com/rgbdan/peerbox#macos-apple-silicon">one extra step</a> on first launch. Linux: .deb or AppImage. Windows: <a href="https://github.com/rgbdan/peerbox#build-from-source">build from source</a>.</p>
+      </div>
+
+      <!-- One file syncing laptop -> desktop, played once on load (static with reduced motion). -->
+      <div class="scene" role="img" aria-label="A file saved on a laptop appears on a desktop computer, sent directly and encrypted.">
+        <div class="scene__device">
+          <div class="scene__bar">
+            <span class="scene__name">Laptop</span>
+            <span class="scene__path">~/Peerbox</span>
+          </div>
+          <ul class="scene__files">
+            <li class="scene__file">notes.md</li>
+            <li class="scene__file">taxes-2025.pdf</li>
+            <li class="scene__file">trip-photos/</li>
+            <li class="scene__file scene__file--new">pitch-v3.key <span class="scene__tag scene__tag--saved">saved</span></li>
+          </ul>
+        </div>
+
+        <div class="scene__wire" aria-hidden="true">
+          <span class="scene__packet"></span>
+          <span class="scene__wire-label">direct, encrypted</span>
+        </div>
+
+        <div class="scene__device">
+          <div class="scene__bar">
+            <span class="scene__name">Desktop</span>
+            <span class="scene__path">~/Peerbox</span>
+          </div>
+          <ul class="scene__files">
+            <li class="scene__file">notes.md</li>
+            <li class="scene__file">taxes-2025.pdf</li>
+            <li class="scene__file">trip-photos/</li>
+            <li class="scene__file scene__file--arrive">pitch-v3.key <span class="scene__tag scene__tag--synced">synced</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="container">
+        <h2 class="section__title">Set up in two minutes.</h2>
+        <ol class="steps">
+          <li class="step">
+            <span class="step__num" aria-hidden="true">1</span>
+            <h3 class="step__title">Create your drive</h3>
+            <p class="step__body">Pick a folder. peerbox gives you a 12-word recovery phrase. It&rsquo;s the only credential you&rsquo;ll ever need.</p>
+            <p class="step__words" aria-label="Example recovery phrase">
+              <span class="step__word">orbit</span>
+              <span class="step__word">velvet</span>
+              <span class="step__word">lantern</span>
+              <span class="step__word">maple</span>
+              <span class="step__more">and 8 more</span>
+            </p>
+          </li>
+          <li class="step">
+            <span class="step__num" aria-hidden="true">2</span>
+            <h3 class="step__title">Link your other devices</h3>
+            <p class="step__body">Install peerbox on each computer and paste in the drive key from your first one. No sign-up, email or password.</p>
+          </li>
+          <li class="step">
+            <span class="step__num" aria-hidden="true">3</span>
+            <h3 class="step__title">Files just sync</h3>
+            <p class="step__body">Whenever two of your devices are online, they find each other and sync. Offline changes catch up when they reconnect.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section section--alt" id="security">
+      <div class="container">
+        <h2 class="section__title">Only your devices can read your files.</h2>
+        <div class="features">
+          <div class="feature">
+            <svg class="feature__icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path><path d="M9.5 12l2 2 3.5-4"></path></svg>
+            <h3 class="feature__title">Encrypted in transit</h3>
+            <p class="feature__body">Every connection between your devices is encrypted with the Noise protocol. Nobody on the network can read what&rsquo;s sent, including us.</p>
+          </div>
+          <div class="feature">
+            <svg class="feature__icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="14" r="4"></circle><path d="M11 11L20 2"></path><path d="M17 5l2.5 2.5"></path><path d="M14 8l2 2"></path></svg>
+            <h3 class="feature__title">Keys stay on your devices</h3>
+            <p class="feature__body">Keys are created and kept on your own machines. There&rsquo;s no server to upload them to.</p>
+          </div>
+          <div class="feature">
+            <svg class="feature__icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 5.1A10.5 10.5 0 0 1 12 5c5 0 9 4 10 7-.4 1.1-1.2 2.4-2.4 3.6M6.2 6.2C4 7.7 2.6 9.9 2 12c1 3 5 7 10 7 1.5 0 2.9-.4 4.2-1"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg>
+            <h3 class="feature__title">No tracking</h3>
+            <p class="feature__body">No analytics and nothing phoning home. The app has no server to report to.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="open-source">
+      <div class="container open">
+        <h2 class="section__title">Open source, top to bottom.</h2>
+        <div class="open__body">
+          <p>peerbox is licensed under the GPL, and every library it depends on is open source too: Hypercore and Hyperswarm for sync, Tauri for the desktop app. Read the code, build it yourself, or run the headless version on a Raspberry&nbsp;Pi.</p>
+          <p class="open__claim">If peerbox disappeared tomorrow, your sync would keep working.</p>
+          <a class="open__link" href="https://github.com/rgbdan/peerbox">View the source on GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta" id="get">
+      <h2 class="cta__title">Own your sync.</h2>
+      <p class="cta__sub">Free and open source, for Mac and Linux. No account needed.</p>
+      <div class="actions">
+        <a class="actions__primary" href="https://github.com/rgbdan/peerbox/releases/latest/download/peerbox-macos-arm64.dmg">Download for Mac</a>
+        <a class="actions__primary" href="https://github.com/rgbdan/peerbox/releases/latest">Download for Linux</a>
+      </div>
+      <p class="actions__note">Mac: Apple Silicon (M1 or newer), with <a href="https://github.com/rgbdan/peerbox#macos-apple-silicon">one extra step</a> on first launch. Linux: .deb or AppImage. Windows: <a href="https://github.com/rgbdan/peerbox#build-from-source">build from source</a>.</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span class="footer__brand">peerbox</span>
+    <a class="footer__link" href="https://github.com/rgbdan/peerbox">Source code</a>
+    <span class="footer__legal">&copy; 2026</span>
+  </footer>
+
+</body>
+</html>

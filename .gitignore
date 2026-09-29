@@ -1,0 +1,13 @@
+node_modules/
+dist/
+apps/desktop/build/
+apps/desktop/release/
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/engine/
+packages/*/data/
+*.log
+.DS_Store
+recovery.txt
+keys.txt

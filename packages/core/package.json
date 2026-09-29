@@ -1,0 +1,35 @@
+{
+  "name": "@peerbox/core",
+  "version": "0.1.1",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "spike": "tsx src/spike.ts",
+    "daemon": "tsx src/daemon.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@peerbox/protocol": "*",
+    "autobase": "^7.28.1",
+    "b4a": "^1.8.1",
+    "chokidar": "^5.0.0",
+    "corestore": "^7.12.0",
+    "hyperbee": "^2.27.3",
+    "hyperblobs": "^2.12.1",
+    "hypercore": "^11.35.1",
+    "hypercore-crypto": "^3.7.0",
+    "hyperswarm": "^4.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}
