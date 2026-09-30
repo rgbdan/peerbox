@@ -13,6 +13,16 @@ export interface StatusUpdate {
   error: string | null
 }
 
+/** The manual update check (src/engine/updates.ts). */
+export interface UpdateState {
+  current: string
+  /** Newest published version, once a check has succeeded. */
+  latest: string | null
+  available: boolean
+  checkedAt: number | null
+  error: string | null
+}
+
 export type AppState =
   | { view: 'setup', defaultDir: string }
   | ({

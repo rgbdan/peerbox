@@ -1,5 +1,5 @@
 import type { DeviceInfo } from '@peerbox/core'
-import type { AppState, StatusUpdate } from '../shared/app-state'
+import type { AppState, StatusUpdate, UpdateState } from '../shared/app-state'
 
 export interface PeerboxBridge {
   quit: () => void
@@ -17,6 +17,10 @@ export interface PeerboxBridge {
   createDrive: (syncDir: string) => Promise<{ phrase: string }>
   joinDrive: (baseKey: string, syncDir: string) => Promise<void>
   restoreDrive: (phrase: string, syncDir: string) => Promise<void>
+  getUpdateState: () => Promise<UpdateState>
+  checkForUpdates: () => Promise<UpdateState>
+  openDownload: () => void
+  onUpdate: (callback: (state: UpdateState) => void) => void
 }
 
 declare global {

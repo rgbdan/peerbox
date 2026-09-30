@@ -10,6 +10,7 @@
     "build:renderer": "vite build",
     "dev": "npm run build:engine && node scripts/stage-node.mjs && vite",
     "dist": "node scripts/package.mjs",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

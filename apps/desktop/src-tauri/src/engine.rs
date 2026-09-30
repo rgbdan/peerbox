@@ -36,8 +36,8 @@ pub struct EngineClient {
 
 impl EngineClient {
     /// Spawn the sidecar: system `node` in dev, the bundled `node` next to the
-    /// executable in packaged builds.
-    pub fn spawn(sidecar_path: &Path) -> Result<Self, String> {
+    /// executable in packaged builds. `version` is the app's, for the update check.
+    pub fn spawn(sidecar_path: &Path, version: &str) -> Result<Self, String> {
         let program: PathBuf = if cfg!(debug_assertions) {
             PathBuf::from("node")
         } else {
@@ -55,6 +55,7 @@ impl EngineClient {
                     .parent()
                     .expect("sidecar path has no parent"),
             )
+            .env("PEERBOX_VERSION", version)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -168,8 +169,9 @@ impl EngineClient {
         }
     }
 
-    /// Status events from the engine: { "event": "status", "status", "peers",
-    /// "error" }. Runs on the reader thread — no RPC calls allowed inside.
+    /// Events from the sidecar: { "event": "status", "status", "peers", "error" }
+    /// or { "event": "update", "state" }. Runs on the reader thread — no RPC
+    /// calls allowed inside.
     pub fn set_on_event(&self, callback: impl Fn(Value) + Send + Sync + 'static) {
         *self.inner.on_event.write().unwrap() = Some(Box::new(callback));
     }

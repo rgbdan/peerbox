@@ -19,6 +19,9 @@ use tray::{create_tray, rebuild_tray, TrayView};
 /// launch without it is one the user asked for, and shows the dashboard.
 pub const HIDDEN_FLAG: &str = "--hidden";
 
+/// Where "Download" goes. Fixed here, never taken from the webview.
+const RELEASES_URL: &str = "https://github.com/rgbdan/peerbox/releases/latest";
+
 pub fn launched_hidden<I: IntoIterator<Item = String>>(args: I) -> bool {
     args.into_iter().any(|arg| arg == HIDDEN_FLAG)
 }
@@ -33,8 +36,11 @@ pub struct EngineState {
 /// Re-reads engine state into the tray.
 fn refresh_tray(app: &AppHandle, state: &EngineState) {
     if let Ok(value) = state.client.call("getState", json!([])) {
-        let view = TrayView::from_state(&value);
-        *state.view.lock().unwrap() = view.clone();
+        let view = {
+            let mut current = state.view.lock().unwrap();
+            *current = TrayView::from_state(&value, current.update.clone());
+            current.clone()
+        };
         // Tray objects belong to the main thread; this runs on workers too.
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
@@ -90,6 +96,10 @@ fn open_folder(state: &EngineState) -> Result<(), String> {
         return Ok(());
     }
     opener::open(view.sync_dir).map_err(|err| format!("failed to open folder: {err}"))
+}
+
+fn open_download() -> Result<(), String> {
+    opener::open_browser(RELEASES_URL).map_err(|err| format!("failed to open the browser: {err}"))
 }
 
 fn pick_folder(app: &AppHandle) -> Result<Option<PathBuf>, String> {
@@ -270,6 +280,21 @@ fn restore_drive(
     Ok(())
 }
 
+#[tauri::command(async)]
+fn get_update_state(state: State<'_, EngineState>) -> Result<Value, String> {
+    state.client.call("getUpdateState", json!([]))
+}
+
+#[tauri::command(async)]
+fn check_for_updates(state: State<'_, EngineState>) -> Result<Value, String> {
+    state.client.call("checkForUpdates", json!([]))
+}
+
+#[tauri::command(rename = "open_download")]
+fn open_download_cmd() -> Result<(), String> {
+    open_download()
+}
+
 #[tauri::command]
 fn quit(app: AppHandle) {
     shutdown(&app);
@@ -290,10 +315,11 @@ fn sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let client = EngineClient::spawn(&sidecar_path(app.handle())?)?;
+    let version = app.package_info().version.to_string();
+    let client = EngineClient::spawn(&sidecar_path(app.handle())?, &version)?;
 
     let view = match client.call("getState", json!([])) {
-        Ok(value) => TrayView::from_state(&value),
+        Ok(value) => TrayView::from_state(&value, None),
         Err(err) => {
             client.shutdown();
             return Err(format!("engine failed to start: {err}").into());
@@ -313,6 +339,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Status events arrive on the reader thread: hop to the main thread, no RPC here.
     let status_handle = handle.clone();
     client.set_on_event(move |message| {
+        if message["event"] == "update" {
+            on_update_event(&status_handle, message["state"].clone());
+            return;
+        }
         let status = message
             .get("status")
             .and_then(Value::as_str)
@@ -352,10 +382,33 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// An update check finished: mirror it in the tray and window.
+/// Called on the reader thread, so hop to the main thread; no RPC here.
+fn on_update_event(app: &AppHandle, update: Value) {
+    let available = update["available"].as_bool() == Some(true);
+    let latest = update["latest"].as_str().filter(|_| available).map(String::from);
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let state = handle.state::<EngineState>();
+        let view = {
+            let mut view = state.view.lock().unwrap();
+            view.update = latest;
+            view.clone()
+        };
+        let _ = rebuild_tray(&handle, &state.tray, &state.rendered, &view);
+        let _ = handle.emit("update", update);
+    });
+}
+
 fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     let state = app.state::<EngineState>();
     match event.id().as_ref() {
         "open-app" => focus_window(app),
+        "download-update" => {
+            if let Err(err) = open_download() {
+                eprintln!("[peerbox] {err}");
+            }
+        }
         "open-folder" => {
             if let Err(err) = open_folder(&state) {
                 eprintln!("[peerbox] open folder failed: {err}");
@@ -396,6 +449,9 @@ pub fn run() {
             create_drive,
             join_drive,
             restore_drive,
+            get_update_state,
+            check_for_updates,
+            open_download_cmd,
             quit
         ])
         .on_menu_event(handle_menu_event)

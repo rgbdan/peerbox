@@ -1,12 +1,16 @@
 // Engine sidecar: newline-delimited JSON with the Tauri shell over stdin/stdout.
-// Requests {id, method, params} -> {id, ok, result|error}; events {event: "status", ...}.
+// Requests {id, method, params} -> {id, ok, result|error}; events
+// {event: "status", ...} and {event: "update", state}.
 // stdout carries only JSON; logs go to stderr.
 
 import { createInterface } from 'node:readline'
 import { configDir, loadSyncDir } from '@peerbox/core'
 import { EngineHost } from './engine-host'
+import { UpdateChecker } from './updates'
 
 const host = new EngineHost(configDir())
+// The shell passes its own version (tauri.conf.json), the single source of truth.
+const updates = new UpdateChecker(process.env.PEERBOX_VERSION ?? '')
 
 function send (message: unknown): void {
   try {
@@ -67,6 +71,8 @@ const handlers: Record<string, Handler> = {
   create: async ([syncDir]) => host.create(String(syncDir)),
   pair: async ([baseKey, syncDir]) => host.pair(String(baseKey), String(syncDir)),
   restore: async ([phrase, syncDir]) => host.restore(String(phrase), String(syncDir)),
+  getUpdateState: () => updates.state,
+  checkForUpdates: () => updates.check(),
   stop: () => host.stop()
 }
 
@@ -138,6 +144,10 @@ async function start (): Promise<void> {
 
 host.on('status', (status: string) => {
   send({ event: 'status', status, peers: host.peers, error: host.error })
+})
+
+updates.on('update', (state: unknown) => {
+  send({ event: 'update', state })
 })
 
 void start().catch((err: unknown) => {

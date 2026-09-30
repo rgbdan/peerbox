@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import type { DeviceInfo } from '@peerbox/core'
 import { encodePairing } from '@peerbox/protocol'
-import type { StatusUpdate } from '../shared/app-state'
+import type { StatusUpdate, UpdateState } from '../shared/app-state'
 
 interface Props {
   initial: StatusUpdate
@@ -24,8 +24,12 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
   const [togglingAutostart, setTogglingAutostart] = useState(false)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [revokingKey, setRevokingKey] = useState<string | null>(null)
+  const [update, setUpdate] = useState<UpdateState | null>(null)
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
+    window.peerbox.getUpdateState().then(setUpdate).catch(() => {})
+    window.peerbox.onUpdate(setUpdate)
     const refreshDevices = (): void => { window.peerbox.listDevices().then(setDevices).catch(() => {}) }
     refreshDevices()
     // A status pushed before this view mounted (right after setup) reached
@@ -95,6 +99,15 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
     }
   }
 
+  async function checkNow (): Promise<void> {
+    setChecking(true)
+    try {
+      setUpdate(await window.peerbox.checkForUpdates())
+    } finally {
+      setChecking(false)
+    }
+  }
+
   async function reveal (): Promise<void> {
     setRevealing(true)
     try {
@@ -136,6 +149,13 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
           <button type="button" onClick={() => { void retry() }} disabled={retrying}>
             {retrying ? 'Retrying…' : 'Retry'}
           </button>
+        </div>
+      )}
+
+      {update?.available && (
+        <div className="update-banner">
+          <span>peerbox v{update.latest} is available (you have v{update.current}).</span>
+          <button type="button" onClick={window.peerbox.openDownload}>Download</button>
         </div>
       )}
 
@@ -221,6 +241,30 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
               <p className="phrase">{phrase}</p>
               <button type="button" onClick={() => setPhrase(undefined)}>Hide</button>
             </>
+          )}
+        </>
+      )}
+
+      {update && (
+        <>
+          <h1 className="section">Updates</h1>
+          <p className="hint">
+            peerbox never checks on its own. Check now asks GitHub for the
+            latest version; GitHub sees your IP address, nothing else is sent.
+          </p>
+          <div className="actions">
+            <button type="button" onClick={() => { void checkNow() }} disabled={checking}>
+              {checking ? 'Checking…' : 'Check now'}
+            </button>
+          </div>
+          {!checking && update.checkedAt !== null && (
+            <p className="hint">
+              {update.error !== null
+                ? `Couldn’t check for updates: ${update.error}.`
+                : update.available
+                  ? `Version ${update.latest} is available.`
+                  : `You’re on the latest version (v${update.current}).`}
+            </p>
           )}
         </>
       )}

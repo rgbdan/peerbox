@@ -10,15 +10,18 @@ pub struct TrayView {
     pub status: String,
     pub peers: u32,
     pub sync_dir: String,
+    /// A newer version found by "Check now".
+    pub update: Option<String>,
 }
 
 impl TrayView {
-    /// From the engine's getState reply.
-    pub fn from_state(value: &serde_json::Value) -> Self {
+    /// From the engine's getState reply, which doesn't carry `update`.
+    pub fn from_state(value: &serde_json::Value, update: Option<String>) -> Self {
         Self {
             status: value["status"].as_str().unwrap_or("not-setup").to_string(),
             peers: value["peers"].as_u64().unwrap_or(0) as u32,
             sync_dir: value["syncDir"].as_str().unwrap_or("").to_string(),
+            update,
         }
     }
 }
@@ -64,6 +67,15 @@ fn build_menu(app: &AppHandle, view: &TrayView) -> tauri::Result<Menu<tauri::Wry
         false,
         None::<&str>,
     )?)?;
+    if let Some(version) = &view.update {
+        menu.append(&MenuItem::with_id(
+            app,
+            "download-update",
+            format!("Download peerbox v{version}…"),
+            true,
+            None::<&str>,
+        )?)?;
+    }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(app, "open-app", "Open peerbox", true, None::<&str>)?)?;
     if view.status != "not-setup" {

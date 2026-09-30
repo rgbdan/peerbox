@@ -570,6 +570,19 @@ a {
   letter-spacing: -0.03em;
 }
 
+.cta__support {
+  margin: 16px 0 0;
+  max-width: 40em;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+  text-wrap: balance;
+}
+
+.cta__support a {
+  white-space: nowrap;
+}
+
 .cta__sub {
   margin: 0 0 8px;
   font-size: 18px;

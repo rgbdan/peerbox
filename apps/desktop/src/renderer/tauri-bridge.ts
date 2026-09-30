@@ -2,7 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AppState, StatusUpdate } from '../shared/app-state'
+import type { AppState, StatusUpdate, UpdateState } from '../shared/app-state'
 
 async function fire (command: string, args?: Record<string, unknown>): Promise<void> {
   try {
@@ -32,6 +32,12 @@ export function installBridge (): void {
     chooseFolder: () => invoke<string | null>('choose_folder'),
     createDrive: (syncDir) => invoke('create_drive', { syncDir }),
     joinDrive: (baseKey, syncDir) => invoke('join_drive', { baseKey, syncDir }),
-    restoreDrive: (phrase, syncDir) => invoke('restore_drive', { phrase, syncDir })
+    restoreDrive: (phrase, syncDir) => invoke('restore_drive', { phrase, syncDir }),
+    getUpdateState: () => invoke<UpdateState>('get_update_state'),
+    checkForUpdates: () => invoke<UpdateState>('check_for_updates'),
+    openDownload: () => { void fire('open_download') },
+    onUpdate: (callback) => {
+      void listen<UpdateState>('update', (event) => callback(event.payload))
+    }
   }
 }
