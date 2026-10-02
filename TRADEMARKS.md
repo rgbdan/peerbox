@@ -2,7 +2,7 @@
 
 The peerbox **code** is licensed under the GNU GPL v3 (see [LICENSE](LICENSE)).
 The GPL covers the code only. It does not grant any rights to the **peerbox
-name, logo or icon** (the "marks"), which belong to aciddaniel.
+name, logo or icon** (the "marks"), which belong to rgbdan.
 
 This policy explains what you can and can't do with the marks. The short
 version: use the code freely under the GPL, but don't make your version look

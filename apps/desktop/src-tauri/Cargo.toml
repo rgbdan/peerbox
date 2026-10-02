@@ -2,7 +2,7 @@
 name = "peerbox"
 version = "0.1.2"
 description = "Private, serverless file sync between your own devices."
-authors = ["aciddaniel <aciddaniel@gmail.com>"]
+authors = ["rgbdan <aciddaniel@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021"
 repository = "https://github.com/rgbdan/peerbox"

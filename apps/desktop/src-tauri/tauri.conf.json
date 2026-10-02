@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "peerbox",
   "version": "0.1.2",
-  "identifier": "org.codeberg.aciddaniel.peerbox",
+  "identifier": "app.peerbox",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -22,8 +22,8 @@
     "category": "Utility",
     "license": "GPL-3.0-or-later",
     "licenseFile": "../../../LICENSE",
-    "publisher": "aciddaniel",
-    "copyright": "Copyright (C) 2026 aciddaniel",
+    "publisher": "rgbdan",
+    "copyright": "Copyright (C) 2026 rgbdan",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -14,7 +14,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { createHash, randomBytes } from 'node:crypto'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pipelinePromise } from 'streamx'
 import { watch, type FSWatcher } from 'chokidar'
 import Corestore from 'corestore'
@@ -341,7 +341,12 @@ export class Engine extends EventEmitter {
       if (!this.base.writable) this.selfAuthorize()
     }
 
+    // What was on disk when we last ran, so changes made while stopped
+    // (deletes here, deletes elsewhere) aren't undone by the passes below.
+    this.snapshot = this.loadDiskState()
     this.startWatcher()
+    await this.base.update()
+    await this.reconcileOfflineDeletes()
     await this.base.update()
     await this.syncToDisk().catch((err: Error) => this.fail(err))
     this.scheduleReconnect()
@@ -664,14 +669,18 @@ export class Engine extends EventEmitter {
       }
 
       // Remove files no longer in the view.
-      for (const path of this.snapshot.keys()) {
+      for (const [path, prev] of this.snapshot) {
         if (next.has(path)) continue
-        rmSync(this.diskPath(path), { force: true })
+        const absPath = this.diskPath(path)
+        // Edited locally since we wrote it: keep the edit, the watcher re-adds it.
+        if (existsSync(absPath) && !(await this.matchesLocal(prev, absPath, statSync(absPath).size))) continue
+        rmSync(absPath, { force: true })
       }
 
       this.snapshot = next
       // Keep failed paths out of the snapshot so the next pass retries them.
       for (const path of retry) this.snapshot.delete(path)
+      this.saveDiskState()
     } finally {
       this.busy--
     }
@@ -697,6 +706,51 @@ export class Engine extends EventEmitter {
     } finally {
       rmSync(tmpPath, { force: true })
     }
+  }
+
+  // -- disk state across restarts -------------------------------------------
+
+  /**
+   * A file we wrote, still in the view at that version, but missing from disk
+   * now was deleted while the engine was stopped: record the delete.
+   */
+  private async reconcileOfflineDeletes (): Promise<void> {
+    const missing = [...this.snapshot.keys()].filter(path => !existsSync(this.diskPath(path)))
+    // Nothing from last run is on disk: more likely an unmounted drive or a
+    // wiped folder than a mass delete, so download everything again.
+    if (missing.length === this.snapshot.size) {
+      this.snapshot.clear()
+      return
+    }
+    for (const path of missing) {
+      const node = await this.base.view.get(path)
+      if (this.base.writable && node && sameBlob(node.value, this.snapshot.get(path)!)) {
+        debug('offline del ' + path)
+        await this.appendOp({ op: 'del', path })
+      } else {
+        // Changed elsewhere since (or not writable yet): download it again.
+        this.snapshot.delete(path)
+      }
+    }
+  }
+
+  // Only valid for the folder it was recorded in; a changed folder starts fresh.
+  private loadDiskState (): Map<string, BlobRef> {
+    try {
+      const state = JSON.parse(readFileSync(join(this.configDir, 'disk-state.json'), 'utf8'))
+      if (resolve(state.syncDir) !== resolve(this.syncDir)) return new Map()
+      return new Map(Object.entries(state.files as Record<string, BlobRef>))
+    } catch {
+      return new Map()
+    }
+  }
+
+  private saveDiskState (): void {
+    const file = join(this.configDir, 'disk-state.json')
+    const state = { syncDir: this.syncDir, files: Object.fromEntries(this.snapshot) }
+    // Temp + rename: a crash mid-write must not leave a truncated state file.
+    writeFileSync(file + '.tmp', JSON.stringify(state))
+    renameSync(file + '.tmp', file)
   }
 
   // -- config ----------------------------------------------------------------
