@@ -247,10 +247,14 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
 
       {update && (
         <>
-          <h1 className="section">Updates</h1>
+          <h1 className="section">
+            Version
+            {update.current !== '' && <span className="section-detail">v{update.current}</span>}
+          </h1>
           <p className="hint">
-            peerbox never checks on its own. Check now asks GitHub for the
-            latest version; GitHub sees your IP address, nothing else is sent.
+            peerbox never checks for updates on its own. Check now asks GitHub
+            for the latest version; GitHub sees your IP address, nothing else
+            is sent.
           </p>
           <div className="actions">
             <button type="button" onClick={() => { void checkNow() }} disabled={checking}>
@@ -263,7 +267,7 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
                 ? `Couldn’t check for updates: ${update.error}.`
                 : update.available
                   ? `Version ${update.latest} is available.`
-                  : `You’re on the latest version (v${update.current}).`}
+                  : 'You’re on the latest version.'}
             </p>
           )}
         </>

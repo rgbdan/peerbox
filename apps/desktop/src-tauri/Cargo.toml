@@ -1,6 +1,6 @@
 [package]
 name = "peerbox"
-version = "0.1.2"
+version = "0.1.4"
 description = "Private, serverless file sync between your own devices."
 authors = ["rgbdan <aciddaniel@gmail.com>"]
 license = "GPL-3.0-or-later"
