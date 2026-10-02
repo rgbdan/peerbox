@@ -152,13 +152,6 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
         </div>
       )}
 
-      {update?.available && (
-        <div className="update-banner">
-          <span>peerbox v{update.latest} is available (you have v{update.current}).</span>
-          <button type="button" onClick={window.peerbox.openDownload}>Download</button>
-        </div>
-      )}
-
       <div className="actions">
         <button type="button" onClick={window.peerbox.openFolder}>Open folder</button>
         {hasPhrase && (
@@ -262,13 +255,16 @@ export function Status ({ initial, baseKey, syncDir, hasPhrase, autostartEnabled
             </button>
           </div>
           {!checking && update.checkedAt !== null && (
-            <p className="hint">
-              {update.error !== null
-                ? `Couldn’t check for updates: ${update.error}.`
-                : update.available
-                  ? `Version ${update.latest} is available.`
-                  : 'You’re on the latest version.'}
-            </p>
+            update.error !== null
+              ? <p className="hint">Couldn’t check for updates: {update.error}.</p>
+              : update.available
+                ? (
+                  <div className="update-banner">
+                    <span>peerbox v{update.latest} is available.</span>
+                    <button type="button" onClick={window.peerbox.openDownload}>Download</button>
+                  </div>
+                  )
+                : <p className="hint">You’re on the latest version.</p>
           )}
         </>
       )}
