@@ -65,7 +65,7 @@ jobs:
 
   macos:
     # Apple Silicon only: the bundled Node and native addons are per-arch.
-    runs-on: macos-14
+    runs-on: macos-15
     # After linux, so the two jobs don't race to create the release; a failed
     # mac build still leaves the Linux assets published.
     needs: linux
