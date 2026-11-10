@@ -34,6 +34,29 @@ pub struct EngineClient {
     inner: Arc<EngineInner>,
 }
 
+/// The sidecar's watcher holds a descriptor per watched file on macOS, and a
+/// GUI app starts with a soft limit of 256. Children inherit the raised limit.
+#[cfg(unix)]
+fn raise_fd_limit() {
+    // macOS rejects a soft limit above OPEN_MAX even when the hard one is unlimited.
+    const TARGET: libc::rlim_t = 10_240;
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: plain syscalls on a local, fully initialised struct.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            return;
+        }
+        let wanted = TARGET.min(limit.rlim_max);
+        if limit.rlim_cur < wanted {
+            limit.rlim_cur = wanted;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn raise_fd_limit() {}
+
 impl EngineClient {
     /// Spawn the sidecar: system `node` in dev, the bundled `node` next to the
     /// executable in packaged builds. `version` is the app's, for the update check.
@@ -48,6 +71,7 @@ impl EngineClient {
             // Tauri bundles `binaries/node-<triple>` as plain `node`.
             exe_dir.join(if cfg!(windows) { "node.exe" } else { "node" })
         };
+        raise_fd_limit();
         let mut child = Command::new(program)
             .arg(sidecar_path)
             .current_dir(

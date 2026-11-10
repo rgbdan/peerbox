@@ -57,6 +57,9 @@ export type EngineStatus = 'idle' | 'syncing' | 'waiting' | 'error'
 const RECONNECT_MIN_MS = 4_000
 const RECONNECT_MAX_MS = 60_000
 
+// How often a long view->disk pass checkpoints disk-state.json.
+const DISK_STATE_SAVE_MS = 5_000
+
 export interface DeviceInfo {
   key: string // hex writer key
   label: string // short id, see identity.ts:deviceLabel
@@ -184,6 +187,9 @@ export class Engine extends EventEmitter {
   private pending = new Set<string>()
   private debounceTimers = new Map<string, NodeJS.Timeout>()
   private syncTimer: NodeJS.Timeout | null = null
+  private syncRun: Promise<void> | null = null
+  private syncQueued = false
+  private downloading = false
   private closed = false
   private busy = 0
   private discovery: any = null
@@ -229,6 +235,8 @@ export class Engine extends EventEmitter {
   get status (): EngineStatus {
     if (this.closed) return 'idle'
     if (this.lastError !== null) return 'error'
+    // A download with nobody to serve it is waiting, not making progress.
+    if (this.downloading && this.connections.size === 0) return 'waiting'
     if (this.busy > 0) return 'syncing'
     if (!this.base) return 'idle'
     if (!this.base.writable) return 'waiting'
@@ -348,7 +356,9 @@ export class Engine extends EventEmitter {
     await this.base.update()
     await this.reconcileOfflineDeletes()
     await this.base.update()
-    await this.syncToDisk().catch((err: Error) => this.fail(err))
+    // In the background: a big first download can take hours, and hosts wait
+    // on start() before they answer anything.
+    this.syncToDisk().catch((err: Error) => this.fail(err))
     this.scheduleReconnect()
   }
 
@@ -521,6 +531,8 @@ export class Engine extends EventEmitter {
     this.watcher.on('add', (path: string) => this.debounceChange(path))
     this.watcher.on('change', (path: string) => this.debounceChange(path))
     this.watcher.on('unlink', (path: string) => this.debounceChange(path))
+    // Unhandled, a watcher 'error' (EMFILE on a big folder) kills the process.
+    this.watcher.on('error', (err: unknown) => this.fail(err instanceof Error ? err : new Error(String(err))))
   }
 
   private debounceChange (absPath: string): void {
@@ -638,7 +650,27 @@ export class Engine extends EventEmitter {
     }, 300)
   }
 
-  private async syncToDisk (): Promise<void> {
+  // One pass at a time: every base update asks for a sync, and overlapping
+  // passes would each download the same not-yet-written files.
+  private syncToDisk (): Promise<void> {
+    if (this.syncRun) {
+      this.syncQueued = true
+      return this.syncRun
+    }
+    this.syncRun = (async () => {
+      try {
+        do {
+          this.syncQueued = false
+          await this.syncPass()
+        } while (this.syncQueued && !this.closed)
+      } finally {
+        this.syncRun = null
+      }
+    })()
+    return this.syncRun
+  }
+
+  private async syncPass (): Promise<void> {
     if (this.closed) return
     this.busy++
     let failure: Error | null = null
@@ -655,13 +687,26 @@ export class Engine extends EventEmitter {
       // Write new/changed files. One bad file must not stop the others.
       const localKey = this.base.local.key.toString('hex')
       const retry = new Set<string>()
+      let savedAt = Date.now()
       for (const [path, blob] of next) {
+        if (this.closed) return
         const prev = this.snapshot.get(path)
         if (prev && sameBlob(prev, blob)) continue
         try {
+          const absPath = this.diskPath(path)
+          const onDisk = existsSync(absPath)
           // Our own blob: disk is the source, rewriting could clobber a newer edit.
-          if (blob.device === localKey && existsSync(this.diskPath(path))) continue
-          await this.writeFromView(path, blob)
+          if (blob.device === localKey && onDisk) continue
+          // Already downloaded by a pass that was interrupted before it saved.
+          if (!onDisk || !(await this.matchesLocal(blob, absPath, statSync(absPath).size))) {
+            await this.writeFromView(path, blob)
+          }
+          // Record progress as we go, so a restart mid-download resumes.
+          this.snapshot.set(path, blob)
+          if (Date.now() - savedAt > DISK_STATE_SAVE_MS) {
+            this.saveDiskState()
+            savedAt = Date.now()
+          }
         } catch (err) {
           failure ??= err as Error
           retry.add(path)
@@ -684,6 +729,7 @@ export class Engine extends EventEmitter {
     } finally {
       this.busy--
     }
+    if (this.closed) return
     if (failure) return this.fail(failure)
     this.lastError = null
     this.emit('status', this.status)
@@ -700,10 +746,12 @@ export class Engine extends EventEmitter {
     // crash mid-download leaves only a watcher-ignored temp file behind.
     const tmpPath = join(dirname(absPath), '.peerbox-tmp-' + randomBytes(6).toString('hex'))
     const source = this.getBlobs(blob.device).createReadStream(blob.id, { wait: true })
+    this.downloading = true
     try {
       await pipelinePromise(source, createWriteStream(tmpPath))
       renameSync(tmpPath, absPath)
     } finally {
+      this.downloading = false
       rmSync(tmpPath, { force: true })
     }
   }
