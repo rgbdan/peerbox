@@ -60,6 +60,10 @@ const RECONNECT_MAX_MS = 60_000
 // How often a long view->disk pass checkpoints disk-state.json.
 const DISK_STATE_SAVE_MS = 5_000
 
+// A view->disk pass older than this re-lists the view when it has changed,
+// so new files don't wait for the whole backlog.
+const RELIST_AFTER_MS = 2_000
+
 export interface DeviceInfo {
   key: string // hex writer key
   label: string // short id, see identity.ts:deviceLabel
@@ -334,7 +338,11 @@ export class Engine extends EventEmitter {
       .then(() => debug('announced ' + this.base.discoveryKey.toString('hex').slice(0, 12)))
       .catch((err: Error) => debug('announce failed: ' + err.message))
 
-    this.base.on('update', () => this.scheduleSync())
+    this.base.on('update', () => {
+      this.scheduleSync()
+      // `writable` can turn true without its event (bootstrap device at boot).
+      if (this.base.writable && this.pending.size > 0) this.flushPending()
+    })
     this.base.on('writable', () => {
       debug('became writable')
       this.emit('status', this.status)
@@ -356,6 +364,8 @@ export class Engine extends EventEmitter {
     await this.base.update()
     await this.reconcileOfflineDeletes()
     await this.base.update()
+    // The startup scan can run before the base reports writable.
+    if (this.base.writable) this.flushPending()
     // In the background: a big first download can take hours, and hosts wait
     // on start() before they answer anything.
     this.syncToDisk().catch((err: Error) => this.fail(err))
@@ -548,9 +558,12 @@ export class Engine extends EventEmitter {
   private flushPending (): void {
     const paths = [...this.pending]
     this.pending.clear()
-    for (const absPath of paths) {
-      this.handleLocalChange(absPath).catch((err: Error) => this.fail(err))
-    }
+    // One at a time: each may hash a file, and a startup scan queues thousands.
+    void (async () => {
+      for (const absPath of paths) {
+        await this.handleLocalChange(absPath).catch((err: Error) => this.fail(err))
+      }
+    })()
   }
 
   private async handleLocalChange (absPath: string): Promise<void> {
@@ -674,7 +687,9 @@ export class Engine extends EventEmitter {
     if (this.closed) return
     this.busy++
     let failure: Error | null = null
+    let interrupted = false
     try {
+      const listedAt = Date.now()
       const next = new Map<string, BlobRef>()
       for await (const { key, value } of this.base.view.createReadStream()) {
         // Ignored junk in the log (e.g. .DS_Store from older builds) is
@@ -688,10 +703,20 @@ export class Engine extends EventEmitter {
       const localKey = this.base.local.key.toString('hex')
       const retry = new Set<string>()
       let savedAt = Date.now()
-      for (const [path, blob] of next) {
+      // Smallest first: one multi-GB file must not hold up everything else.
+      const todo = [...next]
+        .filter(([path, blob]) => {
+          const prev = this.snapshot.get(path)
+          return !(prev && sameBlob(prev, blob))
+        })
+        .sort((a, b) => (a[1].size ?? 0) - (b[1].size ?? 0))
+      for (const [path, blob] of todo) {
         if (this.closed) return
-        const prev = this.snapshot.get(path)
-        if (prev && sameBlob(prev, blob)) continue
+        // The view moved on during a long pass: finish up and list it again.
+        if (this.syncQueued && Date.now() - listedAt > RELIST_AFTER_MS) {
+          interrupted = true
+          break
+        }
         try {
           const absPath = this.diskPath(path)
           const onDisk = existsSync(absPath)
@@ -722,7 +747,12 @@ export class Engine extends EventEmitter {
         rmSync(absPath, { force: true })
       }
 
-      this.snapshot = next
+      if (interrupted) {
+        // Not everything in `next` is on disk yet: only drop what left the view.
+        for (const path of [...this.snapshot.keys()]) if (!next.has(path)) this.snapshot.delete(path)
+      } else {
+        this.snapshot = next
+      }
       // Keep failed paths out of the snapshot so the next pass retries them.
       for (const path of retry) this.snapshot.delete(path)
       this.saveDiskState()
@@ -731,6 +761,8 @@ export class Engine extends EventEmitter {
     }
     if (this.closed) return
     if (failure) return this.fail(failure)
+    // More to do: the follow-up pass reports, so status doesn't flicker idle.
+    if (interrupted) return
     this.lastError = null
     this.emit('status', this.status)
   }
