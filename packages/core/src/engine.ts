@@ -13,8 +13,9 @@ import {
   statSync,
   writeFileSync
 } from 'node:fs'
+import { readdir, rm } from 'node:fs/promises'
 import { createHash, randomBytes } from 'node:crypto'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { pipelinePromise } from 'streamx'
 import { watch, type FSWatcher } from 'chokidar'
 import Corestore from 'corestore'
@@ -63,6 +64,13 @@ const DISK_STATE_SAVE_MS = 5_000
 // A view->disk pass older than this re-lists the view when it has changed,
 // so new files don't wait for the whole backlog.
 const RELIST_AFTER_MS = 2_000
+
+// Files this big download in the background, a few at a time, so everything
+// else keeps syncing while they are in flight.
+const LARGE_FILE_BYTES = 64 * 1024 * 1024
+const MAX_LARGE_DOWNLOADS = 2
+
+const TMP_PREFIX = '.peerbox-tmp-'
 
 export interface DeviceInfo {
   key: string // hex writer key
@@ -175,6 +183,8 @@ export interface EngineOptions {
   debounceMs?: number
   /** How long a file must stay unchanged before the watcher reports it (ms). */
   watchStabilityMs?: number
+  /** Size from which a download runs in the background (bytes). */
+  largeFileBytes?: number
 }
 
 export class Engine extends EventEmitter {
@@ -193,7 +203,12 @@ export class Engine extends EventEmitter {
   private syncTimer: NodeJS.Timeout | null = null
   private syncRun: Promise<void> | null = null
   private syncQueued = false
-  private downloading = false
+  private downloading = 0
+  // Background downloads of large files, and the ones that finished mid-pass.
+  private inflight = new Map<string, BlobRef>()
+  private landed = new Map<string, BlobRef>()
+  // Marks this run's temp files, so leftovers of a killed run can be swept.
+  private tmpPrefix = TMP_PREFIX + randomBytes(4).toString('hex') + '-'
   private closed = false
   private busy = 0
   private discovery: any = null
@@ -240,7 +255,7 @@ export class Engine extends EventEmitter {
     if (this.closed) return 'idle'
     if (this.lastError !== null) return 'error'
     // A download with nobody to serve it is waiting, not making progress.
-    if (this.downloading && this.connections.size === 0) return 'waiting'
+    if (this.downloading > 0 && this.connections.size === 0) return 'waiting'
     if (this.busy > 0) return 'syncing'
     if (!this.base) return 'idle'
     if (!this.base.writable) return 'waiting'
@@ -360,6 +375,7 @@ export class Engine extends EventEmitter {
     // What was on disk when we last ran, so changes made while stopped
     // (deletes here, deletes elsewhere) aren't undone by the passes below.
     this.snapshot = this.loadDiskState()
+    this.sweepStaleTmp().catch((err: Error) => debug('tmp sweep failed: ' + err.message))
     this.startWatcher()
     await this.base.update()
     await this.reconcileOfflineDeletes()
@@ -530,7 +546,7 @@ export class Engine extends EventEmitter {
   private startWatcher (): void {
     this.watcher = watch(this.syncDir, {
       ignoreInitial: false,
-      ignored: (path: string) => path.includes('.peerbox-tmp') || isIgnoredFile(path),
+      ignored: (path: string) => path.includes(TMP_PREFIX) || isIgnoredFile(path),
       // A file still being written (a large copy in progress) must not be
       // reported yet — snapshotting it mid-copy would sync a truncated file.
       awaitWriteFinish: {
@@ -689,6 +705,7 @@ export class Engine extends EventEmitter {
     let failure: Error | null = null
     let interrupted = false
     try {
+      this.landed.clear()
       const listedAt = Date.now()
       const next = new Map<string, BlobRef>()
       for await (const { key, value } of this.base.view.createReadStream()) {
@@ -702,6 +719,8 @@ export class Engine extends EventEmitter {
       // Write new/changed files. One bad file must not stop the others.
       const localKey = this.base.local.key.toString('hex')
       const retry = new Set<string>()
+      const deferred = new Set<string>()
+      const largeBytes = this.opts.largeFileBytes ?? LARGE_FILE_BYTES
       let savedAt = Date.now()
       // Smallest first: one multi-GB file must not hold up everything else.
       const todo = [...next]
@@ -717,6 +736,9 @@ export class Engine extends EventEmitter {
           interrupted = true
           break
         }
+        // A background download landed it since this pass listed the view.
+        const landed = this.snapshot.get(path)
+        if (landed && sameBlob(landed, blob)) continue
         try {
           const absPath = this.diskPath(path)
           const onDisk = existsSync(absPath)
@@ -724,6 +746,11 @@ export class Engine extends EventEmitter {
           if (blob.device === localKey && onDisk) continue
           // Already downloaded by a pass that was interrupted before it saved.
           if (!onDisk || !(await this.matchesLocal(blob, absPath, statSync(absPath).size))) {
+            if ((blob.size ?? 0) >= largeBytes) {
+              deferred.add(path)
+              this.startLargeDownload(path, blob)
+              continue
+            }
             await this.writeFromView(path, blob)
           }
           // Record progress as we go, so a restart mid-download resumes.
@@ -751,7 +778,16 @@ export class Engine extends EventEmitter {
         // Not everything in `next` is on disk yet: only drop what left the view.
         for (const path of [...this.snapshot.keys()]) if (!next.has(path)) this.snapshot.delete(path)
       } else {
+        const old = this.snapshot
         this.snapshot = next
+        // Still downloading in the background: not on disk at this version yet.
+        for (const path of deferred) {
+          const done = this.landed.get(path)
+          if (done && sameBlob(done, next.get(path)!)) continue
+          const prev = old.get(path)
+          if (prev) this.snapshot.set(path, prev)
+          else this.snapshot.delete(path)
+        }
       }
       // Keep failed paths out of the snapshot so the next pass retries them.
       for (const path of retry) this.snapshot.delete(path)
@@ -771,20 +807,61 @@ export class Engine extends EventEmitter {
     return join(this.syncDir, viewPath.slice(1))
   }
 
-  private async writeFromView (path: string, blob: BlobRef): Promise<void> {
+  /** Download one large file without holding up the sync pass. */
+  private startLargeDownload (path: string, blob: BlobRef): void {
+    // Full or already on it: the pass scheduled when one finishes picks it up.
+    if (this.inflight.has(path) || this.inflight.size >= MAX_LARGE_DOWNLOADS) return
+    this.inflight.set(path, blob)
+    this.busy++
+    debug('large download ' + path + ' (' + blob.size + ' bytes)')
+    this.writeFromView(path, blob)
+      .then((written) => {
+        if (!written || this.closed) return
+        this.snapshot.set(path, blob)
+        this.landed.set(path, blob)
+        this.saveDiskState()
+      })
+      .then(() => true, (err: Error) => {
+        if (!this.closed) this.fail(err)
+        return false
+      })
+      .then((ok) => {
+        this.inflight.delete(path)
+        this.busy--
+        // Starts the next queued large file and reports the new status. Not
+        // after a failure: that would retry a broken download in a tight loop.
+        if (ok) this.scheduleSync()
+      })
+  }
+
+  /** False if the view moved on meanwhile and the download was discarded. */
+  private async writeFromView (path: string, blob: BlobRef): Promise<boolean> {
     const absPath = this.diskPath(path)
     mkdirSync(dirname(absPath), { recursive: true })
     // Temp file + rename: a half-written file is never observable, and a
     // crash mid-download leaves only a watcher-ignored temp file behind.
-    const tmpPath = join(dirname(absPath), '.peerbox-tmp-' + randomBytes(6).toString('hex'))
+    const tmpPath = join(dirname(absPath), this.tmpPrefix + randomBytes(6).toString('hex'))
     const source = this.getBlobs(blob.device).createReadStream(blob.id, { wait: true })
-    this.downloading = true
+    this.downloading++
     try {
       await pipelinePromise(source, createWriteStream(tmpPath))
+      // Deleted or replaced while a long download ran: don't resurrect it.
+      const node = await this.base.view.get(path)
+      if (!node || !sameBlob(node.value, blob)) return false
       renameSync(tmpPath, absPath)
+      return true
     } finally {
-      this.downloading = false
+      this.downloading--
       rmSync(tmpPath, { force: true })
+    }
+  }
+
+  /** Remove temp files a killed run left behind (never this run's own). */
+  private async sweepStaleTmp (): Promise<void> {
+    for (const rel of await readdir(this.syncDir, { recursive: true })) {
+      const name = basename(rel)
+      if (!name.startsWith(TMP_PREFIX) || name.startsWith(this.tmpPrefix)) continue
+      await rm(join(this.syncDir, rel), { force: true })
     }
   }
 

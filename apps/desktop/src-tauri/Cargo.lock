@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "peerbox"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "auto-launch",
  "libc",

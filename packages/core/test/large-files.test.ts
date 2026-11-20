@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes, createHash } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   Harness,
@@ -91,4 +91,33 @@ test('a file still being written is not synced truncated', async () => {
 
   await h.stopDevice(slow)
   await h.stopDevice(sink)
+})
+
+test('background downloads: large files arrive, edits and deletes hold, stale temp files go', async () => {
+  const src = await h.createDevice()
+  // Everything from 1 MB up takes the background path on the receiver.
+  const dst = await h.pairDevice(src.engine.baseKey!, { largeFileBytes: 1024 * 1024 }, {
+    'sub/.peerbox-tmp-deadbeef-000000000000': 'left by a killed run'
+  })
+
+  const files = new Map<string, Buffer>()
+  for (let i = 0; i < 5; i++) files.set(`large/f${i}.bin`, randomBytes(2 * 1024 * 1024 + i))
+  files.set('small.txt', Buffer.from('small'))
+  for (const [rel, content] of files) writeFile(src.syncDir, rel, content)
+
+  const arrived = (rel: string, want: Buffer): boolean => {
+    const got = readFile(dst.syncDir, rel)
+    return got !== null && got.equals(want)
+  }
+  await waitFor(() => [...files].every(([rel, want]) => arrived(rel, want)), 'all files to arrive', 60_000)
+
+  const edited = randomBytes(3 * 1024 * 1024)
+  writeFile(src.syncDir, 'large/f0.bin', edited)
+  rmSync(join(src.syncDir, 'large/f1.bin'))
+  await waitFor(() => arrived('large/f0.bin', edited), 'edited large file to arrive', 60_000)
+  await waitFor(() => readFile(dst.syncDir, 'large/f1.bin') === null, 'deleted large file to go', 60_000)
+
+  await waitFor(() => dst.engine.status !== 'syncing', 'receiver to settle', 60_000)
+  assert.deepEqual(listFiles(dst.syncDir).filter(f => f.includes('.peerbox-tmp')), [])
+  assert.equal(dst.engine.error, null)
 })
